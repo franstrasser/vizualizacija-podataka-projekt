@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Projekt</title>
+    <script src="https://d3js.org/d3.v3.min.js"></script>
+
+
+</head>
+
+<body>
+    <script>
+        var lat;
+        var lon;
+        var sunrise;
+        var sunset;
+        var x = d3.scale.linear().domain([0, 12]).range([0, 2 * Math.PI]);
+        var width = 500
+        var height = 500
+        var cx = width / 2
+        var cy = height / 2
+        var margin = 50
+        var radius = width / 2 - margin
+        var num=-1;
+        var svg = d3.select("body").append("svg")
+            .attr("class", "clock")
+            .attr("width", width)
+            .attr("height", height);
+
+        getLocation();
+
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(ShowPosition);
+            }
+            else {
+                console.log("Not supported!")
+            }
+        }
+
+        function ShowPosition(position) {
+            lat = position.coords.latitude;
+            lon = position.coords.longitude;
+            var d = new Date();
+            suntimes(lat, lon, -d.getTimezoneOffset() / 60);
+            showClock();
+        }
+
+        function suntimes(lat, lng, tz) {
+            var d = new Date();
+            var radians = Math.PI / 180.0;
+            var degrees = 180.0 / Math.PI;
+
+            var a = Math.floor((14 - (d.getMonth() + 1.0)) / 12)
+            var y = d.getFullYear() + 4800 - a;
+            var m = (d.getMonth() + 1) + 12 * a - 3;
+            var j_day = d.getDate() + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
+            var n_star = j_day - 2451545.0009 - lng / 360.0;
+            var n = Math.floor(n_star + 0.5);
+            var solar_noon = 2451545.0009 - lng / 360.0 + n;
+            var M = 356.0470 + 0.9856002585 * n;
+            var C = 1.9148 * Math.sin(M * radians) + 0.02 * Math.sin(2 * M * radians) + 0.0003 * Math.sin(3 * M * radians);
+            var L = (M + 102.9372 + C + 180) % 360;
+            var j_transit = solar_noon + 0.0053 * Math.sin(M * radians) - 0.0069 * Math.sin(2 * L * radians);
+            var D = Math.asin(Math.sin(L * radians) * Math.sin(23.45 * radians)) * degrees;
+            var cos_omega = (Math.sin(-0.83 * radians) - Math.sin(lat * radians) * Math.sin(D * radians)) / (Math.cos(lat * radians) * Math.cos(D * radians));
+
+            // sunce ne izlazi
+            if (cos_omega > 1)
+                return [null, -1];
+
+            // sunce ne zalazi
+            if (cos_omega < -1)
+                return [-1, null];
+            var omega = Math.acos(cos_omega) * degrees;
+            var j_set = j_transit + omega / 360.0;
+            var j_rise = j_transit - omega / 360.0;
+            //vremena u UTC vremenskoj zoni
+            var utc_time_set = 24 * (j_set - j_day) + 12;
+            var utc_time_rise = 24 * (j_rise - j_day) + 12;
+            var tz_offset = tz === undefined ? -1 * d.getTimezoneOffset() / 60 : tz;
+            sunrise = (utc_time_rise + tz_offset) % 24;
+            sunset = (utc_time_set + tz_offset) % 24;
+            return [sunrise, sunset];
+        }
+
+        function makeSunClock() {
+            var d = new Date();
+            if (d.getHours()>=12 && num!=0) {
+                var arc1 = d3.svg.arc()
+                    .innerRadius(radius - 60)
+                    .outerRadius(radius - 50)
+                    .startAngle(0)
+                    .endAngle(x(sunset - 12))
+                svg.append("path")
+                    .attr("d", arc1)
+                    .attr("transform", "translate(250,250)")
+                    .attr("fill", "#fdde81");
+
+                var arc2 = d3.svg.arc()
+                    .innerRadius(radius - 60)
+                    .outerRadius(radius - 50)
+                    .startAngle(x(sunset - 12))
+                    .endAngle(2 * Math.PI)
+                svg.append("path")
+                    .attr("d", arc2)
+                    .attr("transform", "translate(250,250)")
+                    .attr("fill", "#12029a");
+                num=0;
+            }
+            else if(d.getHours()<12 && num!=1){
+                var arc1 = d3.svg.arc()
+                    .innerRadius(radius - 60)
+                    .outerRadius(radius - 50)
+                    .startAngle(0)
+                    .endAngle(x(sunrise))
+                svg.append("path")
+                    .attr("d", arc1)
+                    .attr("transform", "translate(250,250)")
+                    .attr("fill", "#12029a");
+
+                var arc2 = d3.svg.arc()
+                    .innerRadius(radius - 60)
+                    .outerRadius(radius - 50)
+                    .startAngle(x(sunrise))
+                    .endAngle(2 * Math.PI)
+                svg.append("path")
+                    .attr("d", arc2)
+                    .attr("transform", "translate(250,250)")
+                    .attr("fill", "#fdde81");
+                num=1;
+            }
+        }
+
+        var showClock = function () {
+            makeSunClock()
+            makeClockFace()
+
+            svg.selectAll("line.hand")
+                .data(getTimeOfDay())
+                .enter()
+                .append("line")
+                .attr("class", function (d) { return d[0] + " hand" })
+                .attr("x1", cx)
+                .attr("y1", function (d) { return cy + handBackLength(d) })
+                .attr("x2", cx)
+                .attr("y2", function (d) { return radius - handLength(d) })
+                .attr("transform", rotationTransform)
+
+
+            setInterval(updateHands, 1000)
+
+            function makeClockFace() {
+                var hourTickLength = Math.round(radius * 0.2)
+                var minuteTickLength = Math.round(radius * 0.075)
+                for (var i = 0; i < 60; ++i) {
+                    var tickLength, tickClass
+                    if ((i % 5) == 0) {
+                        tickLength = hourTickLength
+                        tickClass = "hourtick"
+                    }
+                    else {
+                        tickLength = minuteTickLength
+                        tickClass = "minutetick"
+                    }
+                    svg.append("line")
+                        .attr("class", tickClass + " face")
+                        .attr("x1", cx)
+                        .attr("y1", margin)
+                        .attr("x2", cx)
+                        .attr("y2", margin + tickLength)
+                        .attr("transform", "rotate(" + i * 6 + "," + cx + "," + cy + ")")
+
+
+                }
+
+            }
+
+            function getTimeOfDay() {
+                var now = new Date()
+                var hr = now.getHours()
+                var min = now.getMinutes()
+                var sec = now.getSeconds()
+                return [
+                    ["hour", hr + (min / 60) + (sec / 3600)],
+                    ["minute", min + (sec / 60)],
+                    ["second", sec]
+                ]
+            }
+
+            function handLength(d) {
+                if (d[0] == "hour")
+                    return Math.round(0.3 * radius)
+                else
+                    return Math.round(0.4 * radius)
+            }
+
+            function handBackLength(d) {
+                if (d[0] == "second")
+                    return Math.round(0.2 * radius)
+                else
+                    return Math.round(0.08 * radius)
+            }
+
+            function rotationTransform(d) {
+                var angle
+                if (d[0] == "hour")
+                    angle = (d[1] % 12) * 30
+
+                else
+                    angle = d[1] * 6
+                return "rotate(" + angle + "," + cx + "," + cy + ")"
+            }
+
+            function updateHands() {
+                svg.selectAll("line.hand")
+                    .data(getTimeOfDay())
+                    .transition().ease("bounce")
+                    .attr("transform", rotationTransform);
+
+                    makeSunClock();
+            }
+
+
+
+
+
+
+        }
+
+
+
+
+    </script>
+</body>
+<style>
+    svg.clock {
+        stroke-linecap: round;
+    }
+
+    .face {
+        stroke: rgb(0, 0, 0);
+        stroke-width: 6;
+    }
+
+
+    .minutetick.face {
+        stroke-width: 1.5;
+    }
+
+    .hand {
+        stroke: rgb(0, 0, 0);
+        stroke-width: 8;
+    }
+
+    .hour.hand {
+        stroke-width: 15;
+    }
+
+
+    .second.hand {
+        stroke: red;
+        stroke-width: 4;
+    }
+</style>
+
+</html>
